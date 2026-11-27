@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#20261e">
+<meta name="description" content="一片可以亲手玩耍的秋日树林。用耙子拢起落叶，跳进软软的叶堆，伸展四肢，把秋天抛向天空。">
+<meta property="og:title" content="落叶游乐场 · Leaf Playground">
+<meta property="og:description" content="来林间空地，耙一座叶子山，再一头跳进去。">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://autumn-leaf-playground.zhangjianze200433.chatgpt.site/grove.webp">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<title>落叶游乐场 · Leaf Playground</title>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" class="symbol-set" aria-hidden="true"><defs>
+<symbol id="i-share" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M10 6H5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-5"/></symbol>
+<symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4V5Zm5 4 6 6m0-6-6 6"/></symbol>
+<symbol id="i-sound" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4V5Zm4 3c2.5 2.3 2.5 5.7 0 8m3-11c4 4 4 10 0 14"/></symbol>
+<symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/></symbol>
+<symbol id="i-contract" viewBox="0 0 24 24"><path d="M4 9h5V4m6 0v5h5M4 15h5v5m6 0v-5h5"/></symbol>
+<symbol id="i-guide" viewBox="0 0 24 24"><path d="M12 6c-2-2-6-2-9-1v14c3-1 7-1 9 1 2-2 6-2 9-1V5c-3-1-7-1-9 1Zm0 0v14"/></symbol>
+<symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 10a8 8 0 1 1 1 7M4 4v6h6"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12m0-12L6 18"/></symbol>
+<symbol id="i-mouse" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="6"/><path d="M12 3v6"/></symbol>
+<symbol id="i-bag" viewBox="0 0 24 24"><path d="M4 8h16v12H4zM8 8V4h8v4M4 12h16m-9-1v3h2v-3"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M10 0h4v4h-4zm0 20h4v4h-4zM0 10h4v4H0zm20 0h4v4h-4zM3 3h3v3H3zm15 0h3v3h-3zM3 18h3v3H3zm15 0h3v3h-3zM8 6h8v2h2v8h-2v2H8v-2H6V8h2z"/></symbol>
+<symbol id="i-height" viewBox="0 0 24 24"><path d="m6 7 3-3 3 3M9 4v16M5 20h9m2-2h4m-3-4h3m-4-4h4m-3-4h3"/></symbol>
+</defs></svg>
+<div class="app" id="app">
+<header class="masthead">
+<div class="brand"><span class="brand-mark" data-sprite="maple" aria-hidden="true"></span><div><h1>落叶游乐场</h1><div class="brand-en" lang="en">LEAF PLAYGROUND</div></div></div>
+<nav aria-label="游戏设置"><button class="sound icon-button" id="sound" type="button" aria-label="开启环境音" title="开启环境音" aria-pressed="false"><svg class="icon"><use href="#i-mute"/></svg></button><button class="share" id="share" type="button"><svg class="icon"><use href="#i-share"/></svg><span>分享游戏</span></button></nav>
+</header>
+<main>
+<section class="field" id="field" aria-label="互动游戏场景，秋日林间空地">
+<div class="world"><canvas id="world" tabindex="0" aria-label="秋日草地。在草地上按住拖动耙子，将散叶拢向中央。键盘玩法可在玩法指南中查看。"></canvas></div>
+<div class="hud" aria-label="实时叶堆数据">
+<div class="hud-item"><span class="hud-label"><svg class="icon"><use href="#i-height"/></svg>叶堆高度</span><span class="reading"><strong id="height">0</strong><span>cm</span></span></div>
+<div class="hud-item"><span class="hud-label"><span class="tiny-leaf" data-sprite="leaf"></span>已聚拢</span><span class="reading"><strong id="count">0</strong><span>片</span></span></div>
+</div>
+<div class="place"><svg class="icon"><use href="#i-sun"/></svg><span>林间午后</span></div>
+<div class="field-bottom"><div class="hint"><svg class="icon"><use href="#i-mouse"/></svg><span id="hint">按住拖动，把落叶耙向中央</span></div><button class="expand icon-button" id="expand" type="button" title="全屏游玩" aria-label="全屏游玩"><svg class="icon"><use href="#i-expand"/></svg></button></div>
+</section>
+<section class="toolbox" aria-labelledby="tools-heading">
+<div class="toolbox-top"><h2 id="tools-heading"><svg class="icon"><use href="#i-bag"/></svg>动作栏</h2><span class="rule"></span><button id="guide" class="utility" type="button"><svg class="icon"><use href="#i-guide"/></svg>玩法指南</button></div>
+<div class="actions">
+<button class="action selected" type="button" data-action="rake" aria-pressed="true"><span class="sprite-slot" data-sprite="rake"></span><span class="tool-type"><b>耙起落叶</b><small>把散落的叶子拢成堆</small></span><kbd>1</kbd></button>
+<button class="action" type="button" data-action="jump" aria-pressed="false"><span class="sprite-slot" id="jump-sprite" data-sprite="jump"></span><span class="tool-type"><b id="jump-name">跳进叶堆</b><small id="jump-description">一头扎进松软的秋天</small></span><kbd>2</kbd></button>
+<button class="action" type="button" data-action="toss" aria-pressed="false"><span class="sprite-slot" data-sprite="toss"></span><span class="tool-type"><b>扬起落叶</b><small>捧一把叶子抛向天空</small></span><kbd>3</kbd></button>
+</div>
+</section>
+</main>
+<footer><span class="footer-caption"><i aria-hidden="true"></i>自由游玩</span><button id="reset" class="utility" type="button"><svg class="icon"><use href="#i-reset"/></svg>重新开始</button></footer>
+</div>
+<dialog id="dialog"><div class="dialog-inner"><button id="close" class="dialog-close icon-button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button><div id="dialog-content"></div></div></dialog>
+<div id="notice" role="status"></div>
+<div id="announcer" class="sr" aria-live="polite"></div>
+<script src="sprites.js" defer></script><script src="sound.js" defer></script><script src="game.js" defer></script><script src="ui.js" defer></script>
+</body></html>
