@@ -6,7 +6,7 @@
   const content = get('dialog-content');
   const buttons = [...document.querySelectorAll('[data-action]')];
   const audio = window.createLeafAudio();
-  let game, mode = 'rake', soundOn = false, noticeTimer;
+  let game, mode, soundOn = false, noticeTimer;
   let currentDialog = '', haveFullscreen = false;
 
   document.querySelectorAll('[data-sprite]').forEach(el => {
@@ -19,19 +19,35 @@
     rest: '来回划动，张开四肢做个落叶天使',
     toss: '抬头，看叶子慢慢飘下来'
   };
+  const countText = get('count').firstChild;
+  const heightText = get('height').firstChild;
+  const jumpSprite = get('jump-sprite');
+  const jumpIcon = jumpSprite.firstElementChild;
+  jumpSprite.insertAdjacentHTML('beforeend', window.leafIcon('angel'));
+  const angelIcon = jumpSprite.lastElementChild;
+  let countShown = -1, heightShown = -1, restIconShown;
   const gameState = ({ count, height, mode: next }) => {
-    get('count').textContent = count;
-    get('height').textContent = height;
-    const rest = next === 'rest';
-    if (next !== mode) {
-      get('announcer').textContent = instructions[next];
-      get('jump-sprite').innerHTML = window.leafIcon(rest ? 'angel' : 'jump');
+    if (count !== countShown) {
+      countText.data = String(count);
+      countShown = count;
     }
+    if (height !== heightShown) {
+      heightText.data = String(height);
+      heightShown = height;
+    }
+    if (next === mode) return;
+    if (mode) get('announcer').textContent = instructions[next];
     mode = next;
     get('field').dataset.mode = mode;
     get('hint').textContent = instructions[mode];
-    get('jump-name').textContent = rest ? '划动四肢' : '跳进叶堆';
-    get('jump-description').textContent = rest ? '在落叶里画一个大字' : '一头扎进松软的秋天';
+    const rest = mode === 'rest';
+    if (rest !== restIconShown) {
+      jumpIcon.style.display = rest ? 'none' : '';
+      angelIcon.style.display = rest ? '' : 'none';
+      get('jump-name').textContent = rest ? '划动四肢' : '跳进叶堆';
+      get('jump-description').textContent = rest ? '在落叶里画一个大字' : '一头扎进松软的秋天';
+      restIconShown = rest;
+    }
     const selected = rest ? 'jump' : mode;
     buttons.forEach(button => {
       const active = button.dataset.action === selected;

@@ -1,7 +1,7 @@
 /* Quiet procedural woodland ambience and short, gesture-driven sounds. */
 (() => {
   window.createLeafAudio = function () {
-    let context, master, texture, wind, breeze, breezeDepth, birds;
+    let context, master, texture, wind, breeze, breezeDepth, birds, crackles;
     let enabled = false, paused = false, revision = 0;
     let lastRake = -Infinity;
     const random = (a,b) => a + Math.random() * (b-a);
@@ -40,6 +40,17 @@
         breeze.connect(breezeDepth).connect(air.gain);
         wind.connect(low).connect(high).connect(air).connect(master);
         wind.start(); breeze.start();
+        // The four stereo rustles each have three pre-mixed variations. Decode
+        // off the input path; the primary rustle is playable immediately.
+        const activeContext = context;
+        fetch('crackle.mp3')
+          .then(response => {
+            if (!response.ok) throw new Error('Rustle audio unavailable');
+            return response.arrayBuffer();
+          })
+          .then(bytes => activeContext.decodeAudioData(bytes))
+          .then(buffer => { if (context === activeContext) crackles = buffer; })
+          .catch(() => {});
         return true;
       } catch {
         if (context && context.close) context.close().catch(() => {});
@@ -86,12 +97,18 @@
       voice.onended = () => { voice.disconnect(); env.disconnect(); };
       voice.start(time); voice.stop(time+duration+0.02);
     }
-    function scatter(time, span, count, level, spread) {
-      for (let i = 0; i < count; i++) {
-        const when = time + (i + Math.random()) / count * span;
-        noise(when,random(0.027,0.075),random(2000,4500),random(1400,2800),
-          random(0.38,0.92)*level,random(-spread,spread),0.003);
-      }
+    function crackleLayer(time, slot, level) {
+      if (!crackles) return;
+      const slotDuration = 1.12;
+      const variant = Math.floor(Math.random() * 3);
+      const voice = context.createBufferSource();
+      const gain = context.createGain();
+      voice.buffer = crackles;
+      voice.playbackRate.value = random(.97, 1.04);
+      gain.gain.value = level;
+      voice.connect(gain).connect(master);
+      voice.onended = () => { voice.disconnect(); gain.disconnect(); };
+      voice.start(time, (slot * 3 + variant) * slotDuration, slotDuration);
     }
     function planBird() {
       clearTimeout(birds);
@@ -152,7 +169,7 @@
             if (now - lastRake < 0.095) return;
             lastRake = now;
             noise(now,0.23,1850,880,0.25*level,random(-0.35,0.35),0.032);
-            scatter(now,0.15,3,0.12*level,0.32);
+            crackleLayer(now, 0, level);
             break;
           case 'jump':
             noise(now,0.29,630,1340,0.18*level,0,0.04);
@@ -161,16 +178,16 @@
           case 'landing':
             tone(now,0.18,112,58,0.12*level);
             noise(now,0.53,1850,540,0.52*level,0,0.028);
-            scatter(now+0.025,0.45,13,0.25*level,0.78);
+            crackleLayer(now + .025, 1, level);
             break;
           case 'toss':
             noise(now,0.51,660,2150,0.34*level,0,0.075);
-            scatter(now+0.21,0.9,12,0.15*level,0.85);
+            crackleLayer(now + .21, 2, level);
             break;
           case 'angel':
             noise(now,0.42,1700,820,0.24*level,-0.68,0.046);
             noise(now+0.14,0.43,1600,760,0.25*level,0.68,0.048);
-            scatter(now,0.37,6,0.16*level,0.75);
+            crackleLayer(now, 3, level);
             break;
         }
       }

@@ -32,41 +32,78 @@
   }
 
   function makeSprites() {
-    return shapes.map(shape => hues.map(palette => {
-      const tile = makeCanvas(20, 20);
-      const ink = tile.getContext('2d');
-      shape.forEach((row, y) => [...row].forEach((c, x) => {
-        if (c !== '.') {
-          const specimen = shape === shapes[4] || shape === shapes[5];
-          const coral = palette === hues[0] || palette === hues[2] || palette === hues[5];
-          const autumnColors = coral ? ['#905337','#db6d48','#e98859','#ffb16a','#f5be69','#ac4d3a'] :
-            ['#97763e','#d9a742','#e9bd54','#f8d581','#f5cf71','#ba913d'];
-          ink.fillStyle = (specimen ? autumnColors : palette)[Number(c) - 1];
-          ink.fillRect(x + 4, y + 4, 1, 1);
+    const cell = 22;
+    const atlas = makeCanvas(8 * cell, shapes.length * hues.length * cell);
+    const atlasInk = atlas.getContext('2d');
+    atlasInk.imageSmoothingEnabled = false;
+    const tile = makeCanvas(20, 20);
+    const ink = tile.getContext('2d');
+    const coral = ['#905337','#db6d48','#e98859','#ffb16a','#f5be69','#ac4d3a'];
+    const butter = ['#97763e','#d9a742','#e9bd54','#f8d581','#f5cf71','#ba913d'];
+    for (let shape = 0; shape < shapes.length; shape++) {
+      for (let hue = 0; hue < hues.length; hue++) {
+        const palette = shape < 4 ? hues[hue] : ([0, 2, 5].includes(hue) ? coral : butter);
+        ink.clearRect(0, 0, tile.width, tile.height);
+        shapes[shape].forEach((row, y) => {
+          for (let x = 0; x < row.length; x++) {
+            if (row[x] === '.') continue;
+            ink.fillStyle = palette[Number(row[x]) - 1];
+            ink.fillRect(x + 4, y + 4, 1, 1);
+          }
+        });
+        const top = (shape * hues.length + hue) * cell;
+        for (let angle = 0; angle < 8; angle++) {
+          atlasInk.save();
+          atlasInk.translate(angle * cell + 11, top + 11);
+          atlasInk.rotate(angle * Math.PI / 4);
+          atlasInk.drawImage(tile, -9.5, -9.5);
+          atlasInk.restore();
         }
-      }));
-      return Array.from({ length: 8 }, (_, i) => {
-        const rotated = makeCanvas(22, 22);
-        const ctx = rotated.getContext('2d');
-        ctx.imageSmoothingEnabled = false;
-        ctx.translate(11, 11);
-        ctx.rotate(i * Math.PI / 4);
-        ctx.drawImage(tile, -9.5, -9.5);
-        return rotated;
-      });
-    }));
+      }
+    }
+    return atlas;
   }
 
+  // piles.webp contains the original artwork at five densities and two screen
+  // layouts. The live simulation controls the size of the picture independently.
+  const pileLevels = [24, 78, 164, 348, 704];
+  function pileFrames(layoutWidth, top) {
+    let left = 0;
+    return pileLevels.map(count => {
+      const volume = count / 164;
+      const radius = Math.min(layoutWidth * .157, 100) * volume ** .2;
+      const height = Math.min(layoutWidth * .097, 58.8) * volume ** .61;
+      const width = Math.ceil(radius * 2 + 24);
+      const rows = Math.ceil(height * 1.23 + radius * .21 + 24);
+      const frame = { left, top, width, rows, radius, height };
+      left += width + 2;
+      return frame;
+    });
+  }
+  const compactPileFrames = pileFrames(320, 0);
+  const widePileFrames = pileFrames(720, 133);
+  let pileAtlas, fallbackPile, pileShadow;
+  if (typeof Image === 'function') {
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = () => {
+      if (image.decode) image.decode().then(() => { pileAtlas = image; }, () => { pileAtlas = image; });
+      else pileAtlas = image;
+    };
+    image.src = 'piles.webp';
+  }
   let spriteLibrary;
   function createLeafGame(canvas, options = {}) {
     const ctx = canvas.getContext('2d');
     spriteLibrary ||= makeSprites();
     const sprites = spriteLibrary;
     let W = 720, H = 400, radius = 88, mound = 48;
-    let pile = [], floor = [], air = [], breeze = [], cachedPile, pileDirty = true;
+    let pile = [], floor = [], air = [], breeze = [];
     let time = 0, mode = 'rake', modeTime = 0, resumeMode = 'rake', pendingToss = false;
     let lastTime = 0, frameId = 0, paused = false, destroyed = false;
     let jumpStart = { x: .72, y: .78 }, bounds, press, rakePoint, rakeTarget;
+    const movingFloor = new Set();
+    let groundLayer, groundInk, groundDirty = null, pointerBounds;
     let sweep = 0, keyboardStroke = 0, sweepOrigin, contact = 0, strokeTime = -10, idle = 0, wiggle = 0;
     const sound = (type, strength = 1) => options.onSound?.(type, strength);
     const pickColor = () => [0, 0, 0, 1, 1, 1, 2, 2, 3, 4, 4, 5, 6][Math.floor(Math.random() * 13)];
@@ -89,7 +126,6 @@
       options.onUpdate?.({ count: pile.length, height, mode });
     }
     function changed() {
-      pileDirty = true;
       notify();
     }
     function switchMode(next) {
@@ -103,10 +139,11 @@
       return Math.max(0, body * (1 + bumps) - Math.max(0, u * .045));
     }
     function pxLeaf(context, item, x, y, size, direction = item.turn, across = 1, vertical = 1) {
-      const tile = sprites[item.shape][item.hue][((Math.round(direction) % 8) + 8) % 8];
+      const left = (((Math.round(direction) % 8) + 8) % 8) * 22;
+      const top = (item.shape * hues.length + item.hue) * 22;
       const w = Math.max(3, Math.round(22 * size * across));
       const h = Math.max(3, Math.round(22 * size * vertical));
-      context.drawImage(tile, Math.round(x - w / 2), Math.round(y - h / 2), w, h);
+      context.drawImage(sprites, left, top, 22, 22, Math.round(x - w / 2), Math.round(y - h / 2), w, h);
     }
     function pixelLine(context, x1, y1, x2, y2, width, color) {
       x1 = Math.round(x1); y1 = Math.round(y1); x2 = Math.round(x2); y2 = Math.round(y2);
@@ -131,99 +168,83 @@
       c.fill();
     }
 
-    function buildPile() {
-      const pad = 12;
-      const pw = Math.max(2, Math.ceil(radius * 2 + 2 * pad));
-      const ph = Math.max(2, Math.ceil(mound * 1.23 + radius * .21 + pad * 2));
-      cachedPile = makeCanvas(pw, ph);
-      const c = cachedPile.getContext('2d');
+    function makeFallbackPile() {
+      // A small, reusable bed keeps the game playable while the artwork loads
+      // or if the image request fails. It is never rebuilt during a gesture.
+      const f = widePileFrames[2];
+      const surface = makeCanvas(f.width, f.rows);
+      const c = surface.getContext('2d');
       c.imageSmoothingEnabled = false;
-      const ox = pw / 2, oy = ph - pad - radius * .12;
-      if (pile.length > 8) {
-        // Small steps along the ridgeline keep the bedding from looking like a smooth cone.
-        const base = c.createLinearGradient(ox - radius, oy + 6, ox + radius * .65, oy - mound);
-        base.addColorStop(0, '#925027');
-        base.addColorStop(.29, '#973e1c');
-        base.addColorStop(.62, '#be5f22');
-        base.addColorStop(1, '#eaa43c');
-        c.fillStyle = base;
-        c.beginPath();
-        for (let i = 0; i <= 48; i++) {
-          const u = i / 24 - 1;
-          const x = Math.round(ox + u * radius), y = Math.round(oy - ridge(u) * mound);
-          if (i) c.lineTo(x, y); else c.moveTo(x, y);
-        }
-        for (let i = 24; i >= 0; i--) {
-          const u = i / 12 - 1;
-          c.lineTo(Math.round(ox + u * radius), Math.round(oy + (1 - u * u) * radius * .11));
-        }
-        c.closePath(); c.fill();
-        c.save();
-        c.clip();
-        // Broken, overlapping edges fill the shadow between the visible upper leaves.
-        // A deterministic pattern stops the bedding from flickering as it grows.
-        let seed = 87123;
-        const random = () => {
-          seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-          return seed / 4294967296;
-        };
-        const bark = ['#824221', '#98491e', '#a95120', '#b65b22', '#ae5123', '#c76b29'];
-        const lit = ['#c76825', '#cc742d', '#d88534', '#e0953e', '#c9742e', '#b35926'];
-        const fragments = Math.ceil(radius * mound * .28);
-        for (let j = 0; j < fragments; j++) {
-          const u = random() * 2 - 1, v = random();
-          const xx = ox + u * radius;
-          const yy = oy - ridge(u) * mound * (1 - v) + Math.max(0, 1 - u * u) * radius * .11 * v;
-          const light = u * .20 + (1 - v) * .46 + random() * .45;
-          const colors = light > .50 ? lit : bark;
-          const color = colors[Math.floor(random() * colors.length)];
-          const run = 1 + random() * 4, tilt = (random() - .50) * 2.9;
-          pixelLine(c, xx, yy, xx + run, yy + tilt, random() > .72 ? 2 : 1, color);
-        }
-        c.restore();
+      const ox = f.width / 2, oy = f.rows - 12 - f.radius * .12;
+      c.fillStyle = '#bd692d';
+      c.beginPath();
+      c.moveTo(ox - f.radius, oy);
+      for (let i = -20; i <= 20; i++) {
+        const u = i / 20;
+        c.lineTo(ox + u * f.radius, oy - ridge(u) * f.height);
       }
-      const pieces = [];
-      function surface(item, u, v, size, accent) {
-        const peak = ridge(u);
-        const toe = Math.max(0, 1 - u * u) * radius * .11;
-        const y = oy - peak * mound * (1 - v) + toe * v;
-        const x = ox + u * radius;
-        pieces.push({ item, x, y, size, accent, u, v });
-      }
+      c.quadraticCurveTo(ox, oy + f.radius * .2, ox - f.radius, oy);
+      c.fill();
       for (const item of pile) {
-        surface(item, item.px, item.py, item.scale, false);
-        if (pile.length > 25) {
-          const u = Math.sin(item.phase * 2.831) * .99, v = (item.py * 3.731) % 1;
-          surface(item, u, v, item.scale * .7, true);
-          const middle = Math.sin(item.phase * 4.53) * Math.sin(item.py * 22);
-          surface(item, middle, (item.py * 5.73) % 1, item.scale * .79, true);
-        }
+        const x = ox + item.px * f.radius;
+        const y = oy - ridge(item.px) * (1 - item.py) * f.height
+          + (1 - item.px * item.px) * item.py * f.radius * .11;
+        pxLeaf(c, item, x, y, item.scale * 1.15, item.turn, 1.05, .76);
       }
-      pieces.sort((a, b) => a.y - b.y);
-      for (const f of pieces) {
-        let item = f.item;
-        if (f.accent) {
-          // Darker underlapping foliage at the toe; sun catches the opposite face.
-          const hue = f.v > .76 && f.u < .45 ? 4 : (f.u > .0 && f.v < .48 ? 1 : item.hue);
-          item = { ...item, hue, turn: item.turn + 2 };
-        }
-        const size = f.size * Math.min(1.22, W / 400 + .22);
-        pxLeaf(c, item, f.x, f.y, size, item.turn, 1.05, .76);
-      }
-      pileDirty = false;
+      return surface;
     }
 
     function drawMound() {
-      if (pileDirty) buildPile();
       if (!pile.length) return;
       const x = center.x * W, y = center.y * H;
-      oval(ctx, x - radius * .065, y + radius * .075, radius * 1.1, radius * .15, 'rgba(58,39,20,.12)');
-      oval(ctx, x - radius * .03, y + radius * .068, radius * .96, radius * .115, 'rgba(63,35,17,.17)');
+      if (!pileShadow) {
+        pileShadow = makeCanvas(224, 40);
+        const shadow = pileShadow.getContext('2d');
+        oval(shadow, 112 - 6.5, 12 + 7.5, 110, 15, 'rgba(58,39,20,.12)');
+        oval(shadow, 112 - 3, 12 + 6.8, 96, 11.5, 'rgba(63,35,17,.17)');
+      }
+      const shadowScale = radius / 100;
+      ctx.drawImage(pileShadow, Math.round(x - 112 * shadowScale), Math.round(y - 12 * shadowScale),
+        Math.max(1, Math.round(224 * shadowScale)), Math.max(1, Math.round(40 * shadowScale)));
       const bounce = contact > 0 ? Math.sin(contact * Math.PI * 2.4) * contact * .14 : 0;
-      const height = cachedPile.height * (1 - bounce);
-      const width = cachedPile.width * (1 + bounce * .22);
-      ctx.drawImage(cachedPile, Math.round(x - width / 2), Math.round(y + 12 + radius * .12 - height),
-        Math.round(width), Math.round(height));
+      const rx = radius * (1 + bounce * .22), rise = mound * (1 - bounce);
+      const count = pile.length;
+      if (count <= 20) {
+        // At the very bottom each actual remaining leaf is visible individually.
+        for (const item of pile) {
+          const yy = y - ridge(item.px) * (1 - item.py) * rise
+            + (1 - item.px * item.px) * item.py * rx * .11;
+          pxLeaf(ctx, item, x + item.px * rx, yy, item.scale, item.turn, 1.05, .76);
+        }
+        return;
+      }
+      function stamp(bitmap, frame, left, top) {
+        const sx = rx / frame.radius, sy = rise / frame.height;
+        const anchor = frame.rows - 12 - frame.radius * .12;
+        ctx.drawImage(bitmap, left, top, frame.width, frame.rows,
+          Math.round(x - frame.width * sx / 2), Math.round(y - anchor * sy),
+          Math.max(1, Math.round(frame.width * sx)), Math.max(1, Math.round(frame.rows * sy)));
+      }
+      if (!pileAtlas) {
+        fallbackPile ||= makeFallbackPile();
+        stamp(fallbackPile, widePileFrames[2], 0, 0);
+        return;
+      }
+      const frames = W < 510 ? compactPileFrames : widePileFrames;
+      let i = 0;
+      while (i < pileLevels.length - 1 && count >= pileLevels[i + 1]) i++;
+      const frame = frames[i];
+      stamp(pileAtlas, frame, frame.left, frame.top);
+      if (i < frames.length - 1 && count > pileLevels[i]) {
+        // Only blend near a density change, leaving most frames a single blit.
+        const t = (count - pileLevels[i]) / (pileLevels[i + 1] - pileLevels[i]);
+        if (t > .55) {
+          const next = frames[i + 1];
+          ctx.globalAlpha = (t - .55) / .45;
+          stamp(pileAtlas, next, next.left, next.top);
+          ctx.globalAlpha = 1;
+        }
+      }
     }
     function inPile(x, y) {
       const dx = Math.abs((x - center.x) * W);
@@ -252,27 +273,32 @@
       if (n) changed();
     }
 
+    // Keep only the handful of nearest leaves this stroke can actually collect.
     function autoGather(at, n, restrict) {
-      const available = floor.filter(f => !f.guided);
-      available.sort((a, b) => {
-        const d = (f) => ((f.x - at.x) * W) ** 2 + ((f.y - at.y) * H) ** 2;
-        return d(a) - d(b);
-      });
-      let selected = 0;
-      for (const f of available) {
-        if (selected >= n) break;
-        if (restrict && Math.hypot((f.x - at.x) * W, (f.y - at.y) * H) > Math.max(35, radius * .7)) break;
+      const nearest = [], distances = [];
+      const reach = restrict ? Math.max(35, radius * .7) ** 2 : Infinity;
+      for (const f of floor) {
+        if (f.guided) continue;
+        const d = ((f.x - at.x) * W) ** 2 + ((f.y - at.y) * H) ** 2;
+        if (d > reach || (nearest.length === n && d >= distances[n - 1])) continue;
+        let slot = nearest.length;
+        while (slot > 0 && distances[slot - 1] > d) slot--;
+        nearest.splice(slot, 0, f);
+        distances.splice(slot, 0, d);
+        if (nearest.length > n) { nearest.pop(); distances.pop(); }
+      }
+      for (const f of nearest) {
+        wakeGroundLeaf(f);
         f.guided = true;
         f.guideDelay = between(0, .07);
         f.vx += (center.x - f.x) * .6;
         f.vy += (center.y - f.y) * .6;
-        selected++;
       }
-      if (selected) {
+      if (nearest.length) {
         sweep = 1;
-        sound('rake', Math.min(1, .38 + selected / 12));
+        sound('rake', Math.min(1, .38 + nearest.length / 12));
       }
-      return selected;
+      return nearest.length;
     }
     function rake() {
       if (paused || mode === 'jump' || mode === 'toss') return;
@@ -281,12 +307,13 @@
     function sweepNearby() {
       if (paused || mode === 'jump' || mode === 'toss') return;
       if (mode === 'rest') switchMode('rake');
-      const candidates = floor.filter(f => !f.guided);
-      if (!candidates.length) return;
-      const nearest = candidates.reduce((a,b) => {
-        const d = f => ((f.x - rakePoint.x) * W) ** 2 + ((f.y - rakePoint.y) * H) ** 2;
-        return d(a) < d(b) ? a : b;
-      });
+      let nearest, best = Infinity;
+      for (const f of floor) {
+        if (f.guided) continue;
+        const d = ((f.x - rakePoint.x) * W) ** 2 + ((f.y - rakePoint.y) * H) ** 2;
+        if (d <= best) { best = d; nearest = f; }
+      }
+      if (!nearest) return;
       sweepOrigin = { x: nearest.x, y: nearest.y };
       rakePoint = { ...sweepOrigin };
       rakeTarget = { ...sweepOrigin };
@@ -317,9 +344,10 @@
       sound('angel', .48);
     }
     function position(event) {
-      bounds = canvas.getBoundingClientRect();
-      return { x: clamp((event.clientX - bounds.left) / Math.max(1, bounds.width), 0, 1),
-        y: clamp((event.clientY - bounds.top) / Math.max(1, bounds.height), 0, 1) };
+      // The camera can zoom while a pointer is down. Refresh at most once per frame.
+      pointerBounds ||= canvas.getBoundingClientRect();
+      return { x: clamp((event.clientX - pointerBounds.left) / Math.max(1, pointerBounds.width), 0, 1),
+        y: clamp((event.clientY - pointerBounds.top) / Math.max(1, pointerBounds.height), 0, 1) };
     }
     function aim(p) {
       keyboardStroke = 0;
@@ -328,6 +356,7 @@
     }
     function down(event) {
       if (paused || press || event.button !== undefined && event.button !== 0) return;
+      pointerBounds = null;
       const p = position(event);
       if (mode !== 'rest' && (mode !== 'rake' || p.y < .409)) return;
       press = { ...p, id: event.pointerId, moved: 0, touched: new Set() };
@@ -336,7 +365,7 @@
       event.preventDefault();
     }
     function move(event) {
-      if (paused || (press && press.id !== event.pointerId)) return;
+      if (paused || (press ? press.id !== event.pointerId : mode !== 'rake' || event.pointerType === 'touch')) return;
       const p = position(event);
       if (mode === 'rake' && (press || event.pointerType !== 'touch') && p.y > .40) aim(p);
       if (!press) return;
@@ -348,13 +377,17 @@
         const sx = press.x * W, sy = press.y * H;
         const vx = dx * W, vy = dy * H;
         const rr = Math.min(40, Math.max(19, W * .058));
+        const nearX = Math.min(sx, sx + vx) - rr, farX = Math.max(sx, sx + vx) + rr;
+        const nearY = Math.min(sy, sy + vy) - rr, farY = Math.max(sy, sy + vy) + rr;
         for (const f of floor) {
-          if (f.guided) continue;
+          if (f.guided || f.x * W < nearX || f.x * W > farX ||
+              f.y * H < nearY || f.y * H > farY) continue;
           const fx = f.x * W - sx, fy = f.y * H - sy;
           const alpha = clamp((fx * vx + fy * vy) / (dl * dl), 0, 1);
-          const dist = Math.hypot(fx - alpha * vx, fy - alpha * vy);
-          if (dist >= rr) continue;
-          const pull = (.22 + (1 - dist / rr) * .77);
+          const dist2 = (fx - alpha * vx) ** 2 + (fy - alpha * vy) ** 2;
+          if (dist2 >= rr * rr) continue;
+          const pull = .22 + (1 - Math.sqrt(dist2) / rr) * .77;
+          wakeGroundLeaf(f);
           f.x = clamp(f.x + dx * pull * .9, .015, .985);
           f.y = clamp(f.y + dy * pull * .9, .465, .98);
           f.vx = clamp(f.vx + dx * 7 * pull, -.52, .52);
@@ -378,6 +411,11 @@
         else for (const f of press.touched) {
           if (Math.hypot((f.x - center.x) * W, (f.y - center.y) * H) < radius * 1.8 ||
               (center.x - f.x) * f.vx + (center.y - f.y) * f.vy > .007) {
+            // A long stroke may have already moved this leaf into the pile.
+            if (!movingFloor.has(f)) {
+              if (!floor.includes(f)) continue;
+              wakeGroundLeaf(f);
+            }
             f.guided = true;
             f.guideDelay = between(0, .12);
           }
@@ -443,19 +481,16 @@
       }
     }
 
-    function drawRake() {
-      const x = rakePoint.x * W, y = rakePoint.y * H;
-      const scale = Math.min(1.17, Math.max(.73, W / 620)) * (.84 + (rakePoint.y - .45) * .43);
-      const lean = press ? .07 + Math.sin(time * 7) * .035 : Math.sin(time * 1.15) * .025;
-      const ang = -.81 + lean - sweep * .085;
-      const cs = Math.cos(ang), sn = Math.sin(ang);
-      const local = (u, v) => [x + (u * cs - v * sn) * scale, y + (u * sn + v * cs) * scale];
+    // The teeth and wooden handle are rigid. Draw them once at their typical
+    // angle, then animate this sprite around its collar when the rake moves.
+    function makeRakeSprite() {
+      const image = makeCanvas(116, 124);
+      const ink = image.getContext('2d');
+      const cs = Math.cos(-.81), sn = Math.sin(-.81);
       const l = (u, v, uu, vv, width, color) => {
-        const a = local(u, v), b = local(uu, vv);
-        pixelLine(ctx, ...a, ...b, Math.max(1, Math.round(width * scale)), color);
+        pixelLine(ink, 36 + u * cs - v * sn, 82 + u * sn + v * cs,
+          36 + uu * cs - vv * sn, 82 + uu * sn + vv * cs, Math.round(width), color);
       };
-      const shadowX = x - 6, shadowY = y + 5;
-      oval(ctx, shadowX, shadowY, 17 * scale, 3 * scale, 'rgba(70,44,25,.18)');
       // Tang, brass collar, polished ash handle and bent spring-steel tines.
       l(4, 0, 103, 0, 5.3, '#6c482b');
       l(4, -1, 103, -1, 3.3, '#bd8d53');
@@ -471,11 +506,74 @@
       }
       l(-12, -11.5, -13, 11.5, 2.1, '#7d7560');
       l(-13, -11, -14, 11, 1.1, '#b7ab84');
+      return image;
+    }
+    const rakeSprite = makeRakeSprite();
+
+    function drawRake() {
+      const x = rakePoint.x * W, y = rakePoint.y * H;
+      const scale = Math.min(1.17, Math.max(.73, W / 620)) * (.84 + (rakePoint.y - .45) * .43);
+      const lean = press ? .07 + Math.sin(time * 7) * .035 : Math.sin(time * 1.15) * .025;
+      oval(ctx, x - 6, y + 5, 17 * scale, 3 * scale, 'rgba(70,44,25,.18)');
+      ctx.save();
+      ctx.translate(Math.round(x), Math.round(y));
+      ctx.rotate(lean - sweep * .085);
+      ctx.scale(scale, scale);
+      ctx.drawImage(rakeSprite, -36, -82);
+      ctx.restore();
+    }
+
+    // Covers every ground sprite and its shadow at the closest supported depth.
+    const groundMargin = 22;
+    function markGround(f) {
+      const x = Math.round(f.x * W), y = Math.round(f.y * H);
+      if (!groundDirty) {
+        groundDirty = { l: x - groundMargin, r: x + groundMargin, t: y - groundMargin, b: y + groundMargin };
+      } else {
+        groundDirty.l = Math.min(groundDirty.l, x - groundMargin);
+        groundDirty.r = Math.max(groundDirty.r, x + groundMargin);
+        groundDirty.t = Math.min(groundDirty.t, y - groundMargin);
+        groundDirty.b = Math.max(groundDirty.b, y + groundMargin);
+      }
+    }
+    function wakeGroundLeaf(f) {
+      if (movingFloor.has(f)) return;
+      markGround(f);
+      movingFloor.add(f);
+    }
+    function paintGroundLeaf(c, f) {
+      const depth = clamp((f.y - .45) / .55, 0, 1);
+      const size = f.scale * (.38 + depth * .83);
+      const lift = f.guided ? Math.abs(Math.sin(time * 12 + f.phase)) * 2.2 : 0;
+      oval(c, f.x * W - size * 1.5, f.y * H + size * 1.7, size * 4.4, size * 1.15, 'rgba(68,47,26,.14)');
+      pxLeaf(c, f, f.x * W, f.y * H - lift, size, f.turn, 1.14, .62);
+    }
+    function drawFloor() {
+      if (!groundLayer) return;
+      if (groundDirty) {
+        const { l, r, t, b } = groundDirty;
+        groundInk.clearRect(l, t, r - l, b - t);
+        groundInk.save();
+        groundInk.beginPath(); groundInk.rect(l, t, r - l, b - t); groundInk.clip();
+        for (const f of floor) {
+          const x = f.x * W, y = f.y * H;
+          if (x + groundMargin < l || x - groundMargin > r || y + groundMargin < t || y - groundMargin > b ||
+              movingFloor.has(f)) continue;
+          paintGroundLeaf(groundInk, f);
+        }
+        groundInk.restore();
+        groundDirty = null;
+      }
+      const top = Math.floor(H * .4);
+      ctx.drawImage(groundLayer, 0, top, W, H - top, 0, top, W, H - top);
+      for (const f of movingFloor) paintGroundLeaf(ctx, f);
     }
 
     function reset() {
       pile = Array.from({ length: 164 }, leaf);
       floor = [];
+      movingFloor.clear();
+      groundDirty = { l: 0, t: 0, r: W, b: H };
       for (let i = 0; i < 140; i++) {
         const item = leaf();
         item.x = between(.015, .985);
@@ -508,9 +606,15 @@
       if (!bounds.width || !bounds.height) return;
       H = 400;
       W = Math.max(140, Math.round(H * bounds.width / bounds.height));
+      if (groundLayer && canvas.width === W && canvas.height === H) return;
       canvas.width = W; canvas.height = H;
+      pointerBounds = null;
+      groundLayer = makeCanvas(W, H);
+      groundInk = groundLayer.getContext('2d');
+      groundInk.imageSmoothingEnabled = false;
+      groundDirty = { l: 0, t: 0, r: W, b: H };
       ctx.imageSmoothingEnabled = false;
-      updateMeasures(); pileDirty = true;
+      updateMeasures();
       if (pile.length) render();
     }
     function advance(dt) {
@@ -542,8 +646,10 @@
         if (modeTime > 1.35) switchMode(resumeMode);
       }
       let gathered = 0;
-      for (let i = floor.length - 1; i >= 0; i--) {
+      // Keep collection order stable for leaves reaching the pile together.
+      for (let i = movingFloor.size ? floor.length - 1 : -1; i >= 0; i--) {
         const f = floor[i];
+        if (!movingFloor.has(f)) continue;
         if (f.guided && f.guideDelay > 0) f.guideDelay -= dt;
         else if (f.guided) {
           const factor = 1 - Math.exp(-dt * 8);
@@ -552,7 +658,11 @@
           f.turn += dt * f.spin * 1.5;
         }
         const moving = f.guided || Math.abs(f.vx) + Math.abs(f.vy) > .002;
-        if (!moving) continue;
+        if (!moving) {
+          movingFloor.delete(f);
+          markGround(f);
+          continue;
+        }
         f.x = clamp(f.x + f.vx * dt, .008, .992);
         f.y = clamp(f.y + f.vy * dt, .45, .984);
         if (!f.guided) {
@@ -561,6 +671,7 @@
         }
         if (inPile(f.x, f.y)) {
           f.guided = false;
+          movingFloor.delete(f);
           floor.splice(i, 1); pile.push(f); gathered++;
         }
       }
@@ -577,7 +688,8 @@
           air.splice(i, 1);
           a.x = clamp(a.x, .01, .99); a.y = clamp(a.y, .47, .98);
           a.vx *= .23; a.vy *= .23; a.z = 0;
-          if (inPile(a.x, a.y)) { pile.push(a); gathered++; } else floor.push(a);
+          if (inPile(a.x, a.y)) { pile.push(a); gathered++; }
+          else { floor.push(a); movingFloor.add(a); }
         }
       }
       if (gathered) changed();
@@ -591,6 +703,7 @@
               b.x > .02 && b.x < .98 && !inPile(b.x, b.y)) {
             const landed = { ...b, vx: 0, vy: 0, vz: 0, z: 0, guided: false };
             floor.push(landed);
+            markGround(landed);
           }
           b.y = between(-.16, -.035); b.x = between(-.04, .98);
         }
@@ -606,13 +719,7 @@
           b.turn, .35 + Math.abs(Math.sin(time * 2.1 + b.phase)) * .65, .73);
       }
       ctx.globalAlpha = 1;
-      for (const f of floor) {
-        const depth = clamp((f.y - .45) / .55, 0, 1);
-        const size = f.scale * (.38 + depth * .83);
-        const lift = f.guided ? Math.abs(Math.sin(time * 12 + f.phase)) * 2.2 : 0;
-        oval(ctx, f.x * W - size * 1.5, f.y * H + size * 1.7, size * 4.4, size * 1.15, 'rgba(68,47,26,.14)');
-        pxLeaf(ctx, f, f.x * W, f.y * H - lift, size, f.turn, 1.14, .62);
-      }
+      drawFloor();
       for (const a of air) if (a.z < .24) {
         const fade = clamp(1 - a.z / .24, 0, 1);
         oval(ctx, a.x * W - a.z * 35, a.y * H, 4.3 * a.scale, 1.4, 'rgba(60,42,28,' + (.16 * fade) + ')');
@@ -649,6 +756,7 @@
       }
     }
     function frame(now) {
+      pointerBounds = null;
       if (destroyed) return;
       if (!paused) {
         const elapsed = lastTime ? Math.min(.25, (now - lastTime) / 1000) : .016;
