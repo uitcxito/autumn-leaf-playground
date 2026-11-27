@@ -135,7 +135,7 @@
       announce('草地上的落叶重新铺好了');
     }
   });
-  const publicUrl = 'https://autumn-leaf-playground.zhangjianze200433.chatgpt.site';
+  const publicUrl = new URL('./', window.location.href).href;
   async function copyLink() {
     try { await navigator.clipboard.writeText(publicUrl); return true; } catch { return false; }
   }
